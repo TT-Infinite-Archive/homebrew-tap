@@ -1,0 +1,121 @@
+name: Bump cask
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [release-published]
+
+concurrency:
+  group: bump-cask
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  RELEASES_REPO: TT-Infinite-Archive/releases
+  CASK: Casks/toontown-infinite.rb
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the newest published release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          release=$(gh api "repos/$RELEASES_REPO/releases" \
+            --jq 'map(select(.draft == false and .prerelease == false)) | first')
+
+          if [ -z "$release" ] || [ "$release" = "null" ]; then
+            echo "no published release yet"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tag=$(jq -r .tag_name <<<"$release")
+          latest=${tag#v}
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "$CASK")
+
+          if [ "$latest" = "$current" ]; then
+            echo "cask is already on $current"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for suffix in "-arm64" ""; do
+            name="Toontown-Infinite-Launcher-$latest$suffix.dmg"
+            if ! jq -e --arg n "$name" '.assets | any(.name == $n)' <<<"$release" >/dev/null; then
+              echo "::notice::$tag is published but $name is not uploaded yet; waiting"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          echo "$current -> $latest"
+          echo "latest=$latest"  >> "$GITHUB_OUTPUT"
+          echo "changed=true"    >> "$GITHUB_OUTPUT"
+
+      - name: Hash both architectures
+        if: steps.check.outputs.changed == 'true'
+        id: hash
+        env:
+          VERSION: ${{ steps.check.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          base="https://github.com/$RELEASES_REPO/releases/download/v$VERSION"
+
+          for pair in "arm:-arm64" "intel:"; do
+            key=${pair%%:*}
+            suffix=${pair#*:}
+            file="Toontown-Infinite-Launcher-$VERSION$suffix.dmg"
+
+            curl -fsSL --retry 3 -o "$file" "$base/$file"
+            echo "$key=$(shasum -a 256 "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+            rm -f "$file"
+          done
+
+      - name: Rewrite the cask
+        if: steps.check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.latest }}
+          ARM: ${{ steps.hash.outputs.arm }}
+          INTEL: ${{ steps.hash.outputs.intel }}
+        run: |
+          set -euo pipefail
+
+          sed -i \
+            -e "s/^  version \".*\"$/  version \"$VERSION\"/" \
+            -e "s/^  sha256 arm:   \".*\",$/  sha256 arm:   \"$ARM\",/" \
+            -e "s/^         intel: \".*\"$/         intel: \"$INTEL\"/" \
+            "$CASK"
+
+          grep -q "\"$VERSION\"" "$CASK"
+          grep -q "\"$ARM\""     "$CASK"
+          grep -q "\"$INTEL\""   "$CASK"
+
+      - name: Check the result still parses
+        if: steps.check.outputs.changed == 'true'
+        run: ruby -c "$CASK"
+
+      - name: Commit
+        if: steps.check.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CASK"
+          git commit -m "toontown-infinite $VERSION"
+          git push origin HEAD:main
