@@ -32,8 +32,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          release=$(gh api "repos/$RELEASES_REPO/releases" \
-            --jq 'map(select(.draft == false and .prerelease == false)) | first')
+          release=$(gh api "repos/$RELEASES_REPO/releases/latest" 2>/dev/null || true)
 
           if [ -z "$release" ] || [ "$release" = "null" ]; then
             echo "no published release yet"
