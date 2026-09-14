@@ -1,9 +1,9 @@
 cask "toontown-infinite" do
   arch arm: "-arm64"
 
-  version "1.0.1"
-  sha256 arm:   "da36071c2a1b4f7df3bd88464f4d3e40f5667cde5343c59d90e52331b29ea610",
-         intel: "a5b21ef6f6ddc581340a1ffb6c3d2970e716327586399475b997861e0f10fb28"
+  version "1.0.2"
+  sha256 arm:   "2aebd535caf4d3ed34c9a1ce79910badcf3c5c6c8621999b2db0d42110c309e8",
+         intel: "9d6d6c432778b8b17ca0c05bb53d7114389ae23d039b615547fa6cb1dd3a7ddb"
 
   url "https://github.com/TT-Infinite-Archive/releases/releases/download/v#{version}/Toontown-Infinite-Launcher-#{version}#{arch}.dmg"
   name "Toontown Infinite"
